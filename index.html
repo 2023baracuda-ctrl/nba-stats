@@ -42,20 +42,16 @@ table{width:100%;border-collapse:collapse;font-size:15px}
 th,td{padding:8px 6px;text-align:center;border-bottom:1px solid var(--bd)}
 th{color:var(--mu);font-weight:600}
 th:first-child,td:first-child{text-align:left}
-.h{color:var(--home);font-weight:700}.a{color:var(--away);font-weight:700}
+small{color:var(--mu);font-size:13px}td{white-space:nowrap}.h{color:var(--home);font-weight:700}.a{color:var(--away);font-weight:700}
 </style>
 </head>
 <body>
 <main>
 <h1>Отрывы и камбэки NBA</h1>
-<p class="lead">Вставьте ссылку на официальный PDF матча или перетащите сам файл. Страница найдёт самый большой отрыв и самый большой камбэк победителя.</p>
+<p class="lead">Выберите скачанный официальный PDF матча (…_book.pdf). Страница найдёт самый большой отрыв, самый большой камбэк и посчитает гонки до нужного числа очков в каждой четверти.</p>
 
 <div class="box">
-  <div class="row">
-    <input type="text" id="url" placeholder="https://statsdmz.nba.com/pdfs/20261109/20261109_WASDET_book.pdf" aria-label="Ссылка на PDF">
-    <button id="go">Рассчитать</button>
-  </div>
-  <div id="drop" tabindex="0" role="button">Или перетащите PDF сюда, либо нажмите и выберите файл</div>
+  <div id="drop" tabindex="0" role="button" style="margin-top:0">Нажмите и выберите PDF или перетащите файл сюда</div>
   <input type="file" id="file" accept="application/pdf" hidden>
 </div>
 <div id="msg"></div>
@@ -70,11 +66,15 @@ th:first-child,td:first-child{text-align:left}
 
   <div class="cards">
     <div class="box card"><h2>Максимальный отрыв</h2><div class="big" id="ml"></div><p id="mlt"></p></div>
-    <div class="box card"><h2>Максимальный камбэк победителя</h2><div class="big" id="cb"></div><p id="cbt"></p></div>
+    <div class="box card"><h2>Максимальный камбэк</h2><div class="big" id="cb"></div><p id="cbt"></p></div>
   </div>
 
-  <div class="sec">Разница в счёте по ходу матча</div>
-  <div class="box"><div id="chart"></div></div>
+  <div class="sec">Гонка до N очков в каждой четверти</div>
+  <div class="box">
+    <div class="row"><input type="text" id="race" value="5, 10, 15, 20, 25" aria-label="Очки для гонки"><button id="rgo">Рассчитать гонку</button></div>
+    <p class="date" style="margin:8px 0 0">Можно ввести несколько чисел через запятую. В ячейке: кто первым набрал столько очков внутри четверти и сколько оставалось до конца четверти; ниже время соперника.</p>
+    <div style="overflow-x:auto;margin-top:10px"><table id="race-t"></table></div>
+  </div>
 
   <div class="sec">Максимальный отрыв по четвертям</div>
   <div class="box"><table id="tbl"></table></div>
@@ -83,7 +83,6 @@ th:first-child,td:first-child{text-align:left}
 
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-const PROXY = ''; // необязательно: адрес вашего прокси, например 'https://nba-proxy.xxx.workers.dev/?url='
 const $ = id => document.getElementById(id);
 const SCORE = /(\d{1,3})-(\d{1,3})\s+(?:TIE|[+-]\d+)/, TIME = /^\s*(\d{1,2}:\d{2}|:\d{2}\.\d)\b/;
 const PER = /^\s*(?:(\d)(?:st|nd|rd|th)\s+)?(QUARTER|OVERTIME)/i;
@@ -143,23 +142,35 @@ function lead(pts, sign) {
 
 const at = q => label(q.p) + ', ' + q.c.replace(/^:/, '0:') + ' · счёт ' + q.a + ':' + q.h;
 
-function chart(pts, H, A) {
-  const W = 720, Ht = 260, L = 34, R = 8, T = 14, B = 22, end = Math.max(2880, pts[pts.length - 1].t);
-  const m = Math.max(10, ...pts.map(q => Math.abs(q.h - q.a))), top = Math.ceil(m / 5) * 5;
-  const X = t => L + (W - L - R) * t / end, Y = d => T + (Ht - T - B) * (top - d) / (2 * top);
-  let d = 'M' + X(0) + ' ' + Y(0), prev = 0;
-  pts.forEach(q => { d += ' L' + X(q.t).toFixed(1) + ' ' + Y(prev).toFixed(1) + ' L' + X(q.t).toFixed(1) + ' ' + Y(q.h - q.a).toFixed(1); prev = q.h - q.a; });
-  let g = '';
-  for (let k = 1; k <= 3; k++) g += `<line x1="${X(k * 720)}" x2="${X(k * 720)}" y1="${T}" y2="${Ht - B}" stroke="var(--bd)"/>`;
-  for (let k = 0; k < 4; k++) g += `<text x="${X(k * 720 + 360)}" y="${Ht - 6}" text-anchor="middle" fill="var(--mu)" font-size="12">Q${k + 1}</text>`;
-  g += `<text x="2" y="${Y(top) + 9}" fill="var(--home)" font-size="11">+${top}</text><text x="2" y="${Y(-top)}" fill="var(--away)" font-size="11">+${top}</text>`;
-  const dot = (q, c) => `<circle cx="${X(q.t)}" cy="${Y(q.h - q.a)}" r="5" fill="${c}" stroke="var(--card)" stroke-width="2"/>`;
-  let dots = '';
-  if (H && (!A || H.size >= A.size)) dots += dot(H.q, 'var(--home)'); else if (A) dots += dot(A.q, 'var(--away)');
-  return `<svg viewBox="0 0 ${W} ${Ht}" role="img" aria-label="График разницы в счёте">${g}
-    <line x1="${L}" x2="${W - R}" y1="${Y(0)}" y2="${Y(0)}" stroke="var(--mu)"/>
-    <path d="${d}" fill="none" stroke="var(--tx)" stroke-width="2" stroke-linejoin="round"/>${dots}</svg>
-    <p class="date" style="margin:6px 0 0">Выше нулевой линии впереди хозяева, ниже — гости. Точка — момент максимального отрыва.</p>`;
+function comeback(pts, sign) {
+  let lastLead = -1;
+  pts.forEach((q, i) => { if (sign * (q.h - q.a) > 0) lastLead = i; });
+  let best = 0, bi = -1;
+  for (let i = 0; i < lastLead; i++) { const d = -sign * (pts[i].h - pts[i].a); if (d > best) { best = d; bi = i; } }
+  if (bi < 0) return null;
+  let j = bi + 1;
+  while (sign * (pts[j].h - pts[j].a) <= 0) j++;
+  return { size: best, q: pts[bi], rec: pts[j] };
+}
+
+let G = null;
+const fmt = c => c.replace(/^:/, '0:');
+function race() {
+  if (!G) return;
+  const ns = [...new Set($('race').value.split(/\D+/).filter(Boolean).map(Number))].filter(n => n > 0).sort((a, b) => a - b).slice(0, 10);
+  if (!ns.length) { $('race-t').innerHTML = '<tr><td>Введите число очков</td></tr>'; return; }
+  const { pts, home, away } = G, tag = n => n.split(' ').pop();
+  let prev = { h: 0, a: 0 }, html = '<tr><th>Период</th>' + ns.map(n => `<th>до ${n}</th>`).join('') + '</tr>';
+  [...new Set(pts.map(q => q.p))].forEach(p => {
+    const s = pts.filter(q => q.p === p), base = prev; prev = s[s.length - 1];
+    html += `<tr><td>${label(p)}</td>` + ns.map(n => {
+      const h = s.find(q => q.h - base.h >= n), a = s.find(q => q.a - base.a >= n);
+      if (!h && !a) return '<td>—</td>';
+      const hf = h && (!a || s.indexOf(h) < s.indexOf(a)), w = hf ? h : a, o = hf ? a : h;
+      return `<td><span class="${hf ? 'h' : 'a'}">${tag(hf ? home : away)}</span> ${fmt(w.c)}<br><small>${o ? tag(hf ? away : home) + ' ' + fmt(o.c) : 'второй не набрал'}</small></td>`;
+    }).join('') + '</tr>';
+  });
+  $('race-t').innerHTML = html;
 }
 
 function show(parsed, src) {
@@ -170,7 +181,9 @@ function show(parsed, src) {
   const last = pts[pts.length - 1], homeWon = last.h > last.a;
   const H = lead(pts, 1), A = lead(pts, -1);
   const ml = H && (!A || H.size >= A.size) ? H : A, mlTeam = ml === H ? home : away;
-  const cb = homeWon ? A : H, winner = homeWon ? home : away;
+  const cH = comeback(pts, 1), cA = comeback(pts, -1);
+  const cb = cH && (!cA || cH.size >= cA.size) ? cH : cA, cbTeam = cb === cH ? home : away;
+  const other = cb === cH ? cA : cH, won = (cbTeam === home) === homeWon ? 'выиграл матч' : 'проиграл матч';
 
   $('tA').innerHTML = away + '<small>гости</small>'; $('tH').innerHTML = home + '<small>хозяева</small>';
   $('fin').textContent = last.a + ' : ' + last.h;
@@ -179,16 +192,15 @@ function show(parsed, src) {
   $('mlt').innerHTML = ml ? `<span class="who">${mlTeam}</span><br>${at(ml.q)}` : 'Команды ни разу не вели.';
   $('cb').innerHTML = cb ? cb.size + '<span>оч.</span>' : '0';
   $('cbt').innerHTML = cb
-    ? `<span class="who">${winner}</span> проигрывал больше всего:<br>${at(cb.q)}<br>Отыгрался: ${cb.rec ? at(cb.rec) : '—'}`
-    : `<span class="who">${winner}</span> ни разу не проигрывал по ходу матча.`;
-  $('chart').innerHTML = chart(pts, H, A);
+    ? `<span class="who">${cbTeam}</span> (${won})<br>Проигрывал: ${at(cb.q)}<br>Вышел вперёд: ${at(cb.rec)}` + (other ? `<br><small>У соперника: ${other.size} оч.</small>` : '')
+    : 'Никто не выходил вперёд после отставания.';
 
   const per = [...new Set(pts.map(q => q.p))];
   $('tbl').innerHTML = `<tr><th>Период</th><th>${home}</th><th>${away}</th></tr>` + per.map(p => {
     const s = pts.filter(q => q.p === p), h = Math.max(0, ...s.map(q => q.h - q.a)), a = Math.max(0, ...s.map(q => q.a - q.h));
     return `<tr><td>${label(p)}</td><td class="${h ? 'h' : ''}">${h || '—'}</td><td class="${a ? 'a' : ''}">${a || '—'}</td></tr>`;
   }).join('');
-  $('res').style.display = 'block'; msg('');
+  G = { pts, home, away }; race(); $('res').style.display = 'block'; msg('');
 }
 
 async function run(buf, src) {
@@ -197,24 +209,11 @@ async function run(buf, src) {
   catch (e) { msg('Не удалось прочитать файл: ' + e.message, true); }
 }
 
-async function fromUrl() {
-  const u = $('url').value.trim();
-  if (!u) return msg('Вставьте ссылку на PDF.', true);
-  msg('Скачиваю…');
-  try {
-    const r = await fetch(PROXY ? PROXY + encodeURIComponent(u) : u);
-    if (!r.ok) throw new Error(r.status);
-    run(await r.arrayBuffer(), u);
-  } catch (e) {
-    msg('Браузер не может скачать PDF по ссылке: сайт NBA не разрешает запросы со сторонних страниц. Откройте ссылку, сохраните файл и перетащите его в рамку ниже.', true);
-    window.open(u, '_blank', 'noopener');
-  }
-}
 
 function fromFile(f) { if (f) f.arrayBuffer().then(b => run(b, f.name)); }
 
-$('go').onclick = fromUrl;
-$('url').onkeydown = e => { if (e.key === 'Enter') fromUrl(); };
+$('rgo').onclick = race;
+$('race').onkeydown = e => { if (e.key === 'Enter') race(); };
 const drop = $('drop');
 drop.onclick = () => $('file').click();
 drop.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('file').click(); } };
